@@ -309,7 +309,7 @@ class GenericRequest(object):
 	def fetch_data(self):
 		url = self.construct_url()
 		request = urllib2.build_opener()
-		#request.addheaders = [('User-agent', 'spotipy/Python-urllib')]
+		request.addheaders = [('User-agent', 'spotipy/Python-urllib')]
 		try:
 			request = request.open(url)
 		except urllib2.HTTPError:
