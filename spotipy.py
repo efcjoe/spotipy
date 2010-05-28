@@ -52,6 +52,25 @@ class Track(GenericPropertyObject):
 	def __repr__(self):
 		return "<spotipy.Track: %s>" % self.title
 
+class Length(GenericPropertyObject):
+	attributes = ['seconds', 'formatted']
+	
+	def __init__(self, **kwargs):
+		for a in self.attributes:
+			self.__setattr__(a, None)
+		for k in kwargs:
+			self.__setattr__(k, kwargs.get(k))
+
+		mins, secs = divmod(self.seconds, 60)
+		hrs, mins = divmod(mins, 60)
+		if hrs > 0:
+			self.formatted = "%d:%d:%d" % (hrs, mins, round(secs))
+		else:
+			self.formatted = "%d:%d" % (mins, round(secs))
+	
+	def __repr__(self):
+		return "<spotipy.Length: %s>" % self.seconds
+
 class DataInterpreter(object):
 	_data = None
 	parent_map = None
@@ -359,7 +378,7 @@ class SpotifyLookup(GenericRequest):
 			album = Album(
 				title = d.get_tag('album', 'name').text,
 				uri = d.get_tag('album').attrs.get('href'),
-				availability = d.get_tag('album', 'availability', 'territories').text,
+				availability = d.get_tag('album', 'availability', 'territories').text.split(" "),
 				artist = artist,
 			)
 			id_dictionary = {}
@@ -372,7 +391,7 @@ class SpotifyLookup(GenericRequest):
 				uri = self.args.get('uri'),
 				ids = id_dictionary,
 				number = d.get_tag('track-number').text,
-				length = d.get_tag('length').text,
+				length = Length(seconds = float(d.get_tag('length').text)),
 				popularity = d.get_tag('popularity').text
 			)
 			return track
