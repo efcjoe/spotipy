@@ -24,6 +24,9 @@ class spotipy(object):
 	def lookup_track(self, **kwargs):
 		s = SpotifyLookup('track', kwargs)
 		return s.do()
+	def lookup_album(self, **kwargs):
+		s = SpotifyLookup('album', kwargs)
+		return s.do()
 
 class GenericPropertyObject(object):
 	attributes = []
@@ -41,10 +44,24 @@ class Artist(GenericPropertyObject):
 		return "<spotipy.Artist: %s>" % self.name
 	
 class Album(GenericPropertyObject):
-	attributes = ['title', 'uri', 'artist', 'availability', 'released', 'ids']
+	attributes = ['title', 'uri', 'artist', 'availability', 'released', 'ids', 'tracks']
 
 	def __repr__(self):
 		return "<spotipy.Album: %s>" % self.title
+
+class AlbumTrackListing(GenericPropertyObject):
+	attributes = ['title', 'uri', 'artist', 'tracks']
+	
+	def add(self, track):
+		if self.tracks == None:
+			self.tracks = []
+		self.tracks.append(track)
+	
+	def all(self):
+		return self.tracks
+	
+	def __repr__(self):
+		return "<spotipy.AlbumTrackListing: %s>" % self.title
 
 class Track(GenericPropertyObject):
 	attributes = ['title', 'artist', 'album', 'uri', 'ids', 'number', 'length', 'popularity', 'disc_number']
@@ -226,15 +243,27 @@ class DataInterpreter(object):
 				return None
 		
 		def get_tags(self, *args):
-			#
-			# TODO
-			# Mutli-level get_tags, eg. 'album' (x3) -> 'availability' -> 'territories' (x2)
-			# (maybe)... Not sure if this is needed
-			#
-			root_elements = self._get_root_elements(args[0])
 			final_elements = []
-			for r in root_elements:
-				final_elements.append(self.Tag(**r[0]))
+			root_elements = self._get_root_elements(args[0])
+			
+			if len(args) == 1:
+				for r in root_elements:
+					final_elements.append(self.Tag(**r[0]))
+			
+			# Son, I am disappoint. Do this again.
+			elif len(args) > 1:
+				parent = self.get_tag(*args[:-1])
+				for t in parent.object.getchildren():
+					parent_list = []
+					for c in t.getchildren():
+						tag = {
+							'object': c,
+							'tag': c.tag,
+							'attrs': c.attrib,
+							'text': c.text,
+						}
+						parent_list.append(self.Tag(**tag))
+					final_elements.append(parent_list)
 			return final_elements
 		
 		class Tag(GenericPropertyObject):
@@ -348,7 +377,14 @@ class SpotifyLookup(GenericRequest):
 				self.lookup_track,
 				{
 					'required': ('uri',),
-					'optional': {'extras': ('album', 'albumdetail', 'track', 'trackdetail',)}
+					'optional': {}
+				}
+			],
+			'album': [
+				self.lookup_album,
+				{
+					'required': ('uri',),
+					'optional': {'extras': ('track', 'trackdetail',)}
 				}
 			],
 		}
@@ -395,4 +431,53 @@ class SpotifyLookup(GenericRequest):
 				popularity = d.get_tag('popularity').text
 			)
 			return track
+		raise spotipyError('The spotify uri given to spotipy did not match the proper format.')
+		
+	def lookup_album(self):
+		if self._validate_uri(self.args.get('uri')):
+			raw_data = self.fetch_data()
+			interpreter = self.interpret_data()
+			d = interpreter.get()
+			artist = Artist(
+				name = d.get_tag('artist', 'name').text,
+				uri = d.get_tag('artist').attrs.get('href'),
+			)
+			id_dictionary = {}
+			for x in d.get_tags('id'):
+				id_dictionary.update({x.attrs.get('type'): {'text': x.text, 'href': x.attrs.get('href', None)}})
+			
+			#Oh dear, this is bad. Need to do it again :(.
+			if "extras" in self.args:
+				tracks = AlbumTrackListing(artist = artist)
+				tracks_list = d.get_tags('tracks', 'track')
+				if self.args.get("extras") == "track":
+					for track in tracks_list:
+						tracks.add(Track(
+							title = track[0].text,
+							artist = artist,
+						))
+				elif self.args.get("extras") == "trackdetail":
+					for track in tracks_list:
+						tracks.add(Track(
+							title = track[0].text,		# Wow that worked...
+							artist = artist,			# Hmm,this appears to be going suspiciously well...
+							ids = None,					# Ah, ballsed it up.
+							number = None,
+							disc_number = None,
+							length = None,
+							popularity = None,
+						))
+			else:
+				tracks = None
+
+			album = Album(
+				title = d.get_tag('name').text,
+				artist = artist,
+				uri = self.args.get('uri'),
+				availability = d.get_tag('availability', 'territories').text.split(" "),
+				ids = id_dictionary,
+				released = d.get_tag('released').text,
+				tracks = tracks,
+			)
+			return album
 		raise spotipyError('The spotify uri given to spotipy did not match the proper format.')
