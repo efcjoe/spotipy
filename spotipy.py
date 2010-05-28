@@ -27,6 +27,9 @@ class spotipy(object):
 	def lookup_album(self, **kwargs):
 		s = SpotifyLookup('album', kwargs)
 		return s.do()
+	def lookup_artist(self, **kwargs):
+		s = SpotifyLookup('artist', kwargs)
+		return s.do()
 
 class GenericPropertyObject(object):
 	attributes = []
@@ -48,6 +51,20 @@ class Album(GenericPropertyObject):
 
 	def __repr__(self):
 		return "<spotipy.Album: %s>" % self.title
+
+class AlbumListing(GenericPropertyObject):
+	attributes = ['title', 'uri', 'artist', 'albums']
+	
+	def add(self, album):
+		if self.albums == None:
+			self.albums = []
+		self.albums.append(album)
+	
+	def all(self):
+		return self.albums
+	
+	def __repr__(self):
+		return "<spotipy.AlbumListing: %s>" % self.title
 
 class AlbumTrackListing(GenericPropertyObject):
 	attributes = ['title', 'uri', 'artist', 'tracks']
@@ -387,6 +404,13 @@ class SpotifyLookup(GenericRequest):
 					'optional': {'extras': ('track', 'trackdetail',)}
 				}
 			],
+			'artist': [
+				self.lookup_artist,
+				{
+					'required': ('uri',),
+					'optional': {'extras': ('album', 'albumdetail',)}
+				}
+			],
 		}
 		self.service_base = 'http://ws.spotify.com/lookup/1/'
 		GenericRequest.__init__(self, action, args)
@@ -480,4 +504,35 @@ class SpotifyLookup(GenericRequest):
 				tracks = tracks,
 			)
 			return album
+		raise spotipyError('The spotify uri given to spotipy did not match the proper format.')
+	
+	def lookup_artist(self):
+		if self._validate_uri(self.args.get('uri')):
+			raw_data = self.fetch_data()
+			interpreter = self.interpret_data()
+			d = interpreter.get()
+			
+			#This is just a copypasta from the other bad one. Needs redoing
+			if "extras" in self.args:
+				albums = AlbumListing()
+				albums_list = d.get_tags('albums', 'album')
+				if self.args.get("extras") == "album":
+					for album in albums_list:
+						albums.add(Album(
+							title = album[0].text,
+						))
+				elif self.args.get("extras") == "albumdetail":
+					for album in albums_list:
+						albums.add(Album(
+							title = track[0].text,
+						))
+			else:
+				albums = None
+			
+			artist = Artist(
+				name = d.get_tag('name').text,
+				uri = self.args.get('uri'),
+				albums = albums,
+			)
+			return artist
 		raise spotipyError('The spotify uri given to spotipy did not match the proper format.')
